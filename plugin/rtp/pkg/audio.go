@@ -306,7 +306,7 @@ func (r *AudioFrame) Mux(from *Sample) (err error) {
 		lastPacket.Header.Marker = true
 		return
 	case *codec.PCMACtx:
-		if r.ICodecCtx == nil || r.ICodecCtx != base {
+		if r.ICodecCtx == nil || r.ICodecCtx.GetBase() != base {
 			var ctx PCMACtx
 			ctx.SSRC = uint32(uintptr(unsafe.Pointer(&ctx)))
 			ctx.PCMACtx = base
@@ -317,7 +317,7 @@ func (r *AudioFrame) Mux(from *Sample) (err error) {
 		}
 		ctx = &r.ICodecCtx.(*PCMACtx).RTPCtx
 	case *codec.PCMUCtx:
-		if r.ICodecCtx == nil || r.ICodecCtx != base {
+		if r.ICodecCtx == nil || r.ICodecCtx.GetBase() != base {
 			var ctx PCMUCtx
 			ctx.SSRC = uint32(uintptr(unsafe.Pointer(&ctx)))
 			ctx.PCMUCtx = base
