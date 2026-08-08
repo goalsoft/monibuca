@@ -4,10 +4,74 @@ import (
 	"bytes"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/pion/rtp"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+type singlePacketThenBlockReader struct {
+	packet            rtp.Packet
+	readCount         int
+	secondReadStarted chan struct{}
+	unblockSecondRead chan struct{}
+}
+
+func (r *singlePacketThenBlockReader) Read(packet *rtp.Packet) error {
+	r.readCount++
+	if r.readCount == 1 {
+		*packet = r.packet
+		return nil
+	}
+	close(r.secondReadStarted)
+	<-r.unblockSecondRead
+	return io.EOF
+}
+
+func TestRTPPayloadReaderReturnsAfterSinglePacket(t *testing.T) {
+	payload := bytes.Repeat([]byte{0xD5}, 320)
+	source := &singlePacketThenBlockReader{
+		packet: rtp.Packet{
+			Header:  rtp.Header{Version: 2, SequenceNumber: 1000},
+			Payload: payload,
+		},
+		secondReadStarted: make(chan struct{}),
+		unblockSecondRead: make(chan struct{}),
+	}
+	reader := NewRTPPayloadReader(source)
+
+	type readResult struct {
+		data []byte
+		n    int
+		err  error
+	}
+	result := make(chan readResult, 1)
+	go func() {
+		buf := make([]byte, 1<<14)
+		n, err := reader.Read(buf)
+		result <- readResult{data: buf[:n], n: n, err: err}
+	}()
+
+	select {
+	case got := <-result:
+		require.NoError(t, got.err)
+		require.Equal(t, len(payload), got.n)
+		require.Equal(t, payload, got.data)
+
+		close(source.unblockSecondRead)
+		n, err := reader.Read(make([]byte, 1<<14))
+		require.Zero(t, n)
+		require.ErrorIs(t, err, io.EOF)
+	case <-source.secondReadStarted:
+		close(source.unblockSecondRead)
+		<-result
+		t.Fatal("Read requested another RTP packet instead of returning the first payload")
+	case <-time.After(time.Second):
+		close(source.unblockSecondRead)
+		t.Fatal("timed out waiting for Read")
+	}
+}
 
 func TestRTPPayloadReader(t *testing.T) {
 	// 创建测试数据

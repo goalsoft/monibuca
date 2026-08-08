@@ -129,19 +129,10 @@ func (r *RTPPayloadReader) Read(buf []byte) (n int, err error) {
 		if lastSeq == 0 || r.SequenceNumber == lastSeq+1 {
 			// 序列号连续，处理当前包的数据
 			if lbuf, lpayload := len(buf), len(r.Payload); lbuf >= lpayload {
-				// 缓冲区足够大，可以容纳整个负载
+				// 缓冲区足够大，可以容纳整个负载。每次 Read 最多交付一个 RTP
+				// payload，避免为了填满调用方的大缓冲区而阻塞等待后续 RTP 包。
 				copy(buf, r.Payload)
 				n += lpayload
-
-				// 如果缓冲区还有剩余空间，继续读取下一个包
-				if lbuf > lpayload {
-					var nextn int
-					nextn, err = r.Read(buf[lpayload:])
-					if err != nil && err != io.EOF {
-						return n, err
-					}
-					n += nextn
-				}
 				return
 			} else {
 				// 缓冲区不够大，只复制部分数据，将剩余数据放入缓冲区
